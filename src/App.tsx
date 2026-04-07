@@ -13,14 +13,6 @@ const App = () => {
     return <div>Replace with your main app logic (WebsiteView, WMSView, etc.)</div>;
 };
 
-export default App;
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc, setLogLevel, deleteDoc, setDoc, getDoc, query, where, getDocs, orderBy } from 'firebase/firestore';
-
-// --- GLOBAL CONFIGURATION & ASSETS ---
-setLogLevel('error');
-
 const IMAGES = {
   HERO_SPRAY: "IMG_1957.jpg", 
   MECHANIC: "p3-img2.jpg",
@@ -618,7 +610,6 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
     );
 };
 
-const WebsiteView = ({ db, onLogin, config }: { db: any, onLogin: () => void, config: any }) => {
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [quoteMode, setQuoteMode] = useState<'quote' | 'booking'>('quote');
     const [checkoutItem, setCheckoutItem] = useState<any>(null);
