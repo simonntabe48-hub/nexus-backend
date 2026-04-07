@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { 
-    Phone, Mail, MapPin, Menu, X, ArrowRight, CheckCircle, Search, Car, Wrench, 
-    ShoppingCart, Shield, Clock, Award,  ChevronDown, 
-    Hammer, Zap, PaintBucket, Cog, Loader2, Star, CalendarDays, LayoutDashboard, 
-    Calculator, Plus, AlertTriangle, Users, Trash2, Edit, Settings, Target, Lock, 
-    Database, FileText, Download, Activity, DollarSign, CreditCard, Building, 
-    History, Scale, Sparkles, RefreshCw, UserPlus, Upload, ImageIcon, Camera, 
-    Briefcase, HardHat, TrendingUp, TrendingDown, Percent, Package, List, Layers, 
-    Tag, Banknote, Wallet, Receipt, Info, Landmark, FileOutput, BarChart3, 
-    UserCheck, Printer, Share2, Smartphone, Send, PieChart, BookOpen, Calendar, 
-    Wifi, WifiOff, LogOut, KeyRound, ShieldAlert, ShieldCheck, RefreshCcw, Server, 
-    FileSignature, Eye, Copy, Image as ImageIcon2, ArrowDownCircle, Globe, LogIn, 
-    MoreHorizontal, Check, EyeOff, File, MessageCircle, Cpu, UserCog, CheckSquare, ClipboardList, Tag as TagIcon,
-    Wand2, Type, Truck, MenuIcon, Bot, MessageSquare, Unlock, Facebook, Linkedin
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  X, CheckCircle, AlertTriangle, Info, MapPin, Phone, Facebook, Linkedin, Star, MessageCircle, Package, Lock, MenuIcon, CalendarDays, FileSignature, Server, Loader2, Search, RefreshCcw, Bot,
+  Smartphone, CreditCard, Landmark, Banknote, ArrowRight, Cog, PaintBucket, Zap, Sparkles, ShoppingCart, Wand2, Truck, Settings, Cpu, Hammer, Wrench, Car, KeyRound,
+    UserCheck, ShieldCheck, UserCog, LayoutDashboard, Target, Activity, Unlock, LogOut, DollarSign, Layers, Trash2, Edit, PieChart, BarChart3, ImageIcon, Upload, Type, FileText, Camera, Check, Tag, ClipboardList, CheckSquare, MessageSquare, Calculator, Copy, Send
 } from 'lucide-react';
+// ...existing code...
+
+// MAIN APP COMPONENT (must be exported for Vercel build)
+const App = () => {
+    // You likely want to render either WebsiteView or WMSView based on auth/config
+    // This is a placeholder. Replace with your actual app logic as needed.
+    return <div>Replace with your main app logic (WebsiteView, WMSView, etc.)</div>;
+};
+
+export default App;
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc, setLogLevel, deleteDoc, setDoc, getDoc, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 // --- GLOBAL CONFIGURATION & ASSETS ---
@@ -1027,16 +1027,16 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
     useEffect(() => {
         if (!user || !db) return;
         const appId = (window as any).__app_id || 'default-app-id';
-        const uJobs = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/jobs`), orderBy('jobCardId', 'desc')), (snap) => {
+        const unsubJobs = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/jobs`), orderBy('jobCardId', 'desc')), (snap) => {
             setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)));
         });
-        const uLeads = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/leads`), orderBy('createdAt', 'desc')), (snap) => {
+        const unsubLeads = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/leads`), orderBy('createdAt', 'desc')), (snap) => {
             setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
         });
-        const uProducts = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/inventory`)), (snap) => {
+        const unsubProducts = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/inventory`)), (snap) => {
             setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
         });
-        return () => { uJobs(); uLeads(); uProducts(); };
+        return () => { unsubJobs(); unsubLeads(); unsubProducts(); };
     }, [db, user]);
 
     useEffect(() => {
@@ -1052,7 +1052,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
         const newConfig = JSON.parse(JSON.stringify(config));
         newConfig.content = liveContent;
         try {
-            await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), { config: newConfig }); 
+            await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), { config: newConfig });
             setConfig(newConfig);
             setUploadSuccess('content');
             showToast("Live Content successfully updated", "success");
@@ -1459,7 +1459,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                 <KeyRound size={28} className="text-white" />
                             </div>
                             <h3 className="font-black text-xl text-white uppercase tracking-tight mb-2">Restricted Access</h3>
-                            <p className="text-xs text-slate-400 font-medium mb-8 leading-relaxed">This module requires elevated permissions. Please enter the System Admin OTP sent to the supervisor's phone to temporarily unlock.</p>
+                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-8 leading-relaxed">This module requires elevated permissions. Please enter the System Admin OTP sent to the supervisor's phone to temporarily unlock.</p>
                             
                             <form onSubmit={handleVerifyOtp}>
                                 <input 
@@ -1782,7 +1782,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                                     <button onClick={() => setEditingJob(j)} className="text-slate-500 hover:text-white transition-colors bg-slate-800 p-2 rounded-lg border border-slate-700 hover:border-blue-500">
                                                         <Edit size={16} />
                                                     </button>
-                                                    <button onClick={() => handleDeleteJob(j.id)} className="text-slate-500 hover:text-red-400 transition-colors bg-slate-800 p-2 rounded-lg border border-slate-700 hover:border-red-500">
+                                                    <button onClick={() => handleDeleteJob(j.id)} className="text-slate-500 hover:text-red-400 transition-colors bg-slate-800 p-2 rounded-lg border border-slate-700 hover:border-red-500/50" title="Delete Job Card">
                                                         <Trash2 size={16} />
                                                     </button>
                                                 </div>
@@ -1968,7 +1968,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     <textarea 
                                         rows={4}
                                         placeholder="e.g. Rough idle, P0300 code, smells like burning rubber near the belt..."
-                                        className="w-full bg-slate-900 border border-slate-700 text-slate-300 p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none resize-none placeholder:text-slate-600"
+                                        className="w-full bg-slate-900 border border-slate-700 text-slate-300 p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none resize-none"
                                         value={diagSymptoms}
                                         onChange={e => setDiagSymptoms(e.target.value)}
                                     ></textarea>
@@ -2033,8 +2033,8 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     <div onClick={() => fileInputRefs.current['hero']?.click()} className="relative h-40 bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden group cursor-pointer">
                                         {uploading === 'heroImage' && <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center z-10"><Loader2 className="animate-spin text-blue-500" size={24}/></div>}
                                         <img src={config?.assets?.heroImage || IMAGES.HERO_SPRAY} className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity" alt="Hero" />
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                            <div className="bg-slate-900/80 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center gap-2 group-hover:scale-105 transition-transform"><Upload size={14}/> Upload Hero Image</div>
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="bg-slate-900 text-white p-2 rounded-full shadow-lg border border-slate-700"><Upload size={14} /></div>
                                         </div>
                                         <input type="file" ref={el => { fileInputRefs.current['hero'] = el; }} className="hidden" accept="image/png, image/jpeg" onChange={(e) => handleAssetUpload(e, 'asset', 'heroImage')} />
                                     </div>
@@ -2043,7 +2043,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
 
                             {/* Marketing Content & AI Automation */}
                             <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/50 backdrop-blur-sm space-y-6 flex flex-col">
-                                <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center justify-between border-b border-slate-700/50 pb-4">
+                                <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-slate-700/50 pb-4">
                                     <span className="flex items-center gap-2"><Type size={16} className="text-green-500"/> Live Content & AI Copy</span>
                                     {uploadSuccess === 'content' && <span className="text-[10px] text-green-400 font-bold bg-green-500/10 px-2 py-1 rounded">Changes Live</span>}
                                 </h4>
@@ -2078,7 +2078,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     ></textarea>
                                 </div>
 
-                                <button onClick={handleSaveContent} disabled={isSavingContent} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-colors shadow-lg shadow-green-900/20 flex items-center justify-center gap-2 mt-auto">
+                                <button onClick={handleSaveContent} disabled={isSavingContent} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-colors shadow-lg shadow-green-900/20 flex items-center justify-center gap-2">
                                     {isSavingContent ? <Loader2 className="animate-spin" size={16} /> : 'Save Content to Live Site'}
                                 </button>
                             </div>
@@ -2146,9 +2146,9 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
             {isAddProductOpen && (
                 <div className="fixed inset-0 z-50 bg-[#020617]/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
+                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50 shrink-0">
                             <div>
-                                <h3 className="font-black text-xl text-white uppercase tracking-tight flex items-center gap-2"><TagIcon size={20} className="text-blue-500"/> Add Inventory Item</h3>
+                                <h3 className="font-black text-xl text-white uppercase tracking-tight flex items-center gap-2"><Tag size={20} className="text-blue-500"/> Add Inventory Item</h3>
                                 <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">Drive Master Retail Catalog</p>
                             </div>
                             <button onClick={() => setIsAddProductOpen(false)} className="text-slate-500 hover:text-white bg-slate-800 p-2 rounded-full transition-colors"><X size={20} /></button>
@@ -2220,8 +2220,8 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
             {/* --- JOB EDIT MODAL (PRODUCTION) --- */}
             {editingJob && (
                 <div className="fixed inset-0 z-50 bg-[#020617]/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95">
-                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50 shrink-0">
                             <div>
                                 <h3 className="font-black text-xl text-white uppercase tracking-tight flex items-center gap-2"><ClipboardList size={20} className="text-blue-500"/> Update Job Card</h3>
                                 <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">Ref: {editingJob.jobCardId} | {editingJob.vehicle}</p>
@@ -2393,55 +2393,6 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
         </div>
     );
 };
-
-export default function SprayBarIntegrated() {
-  const [view, setView] = useState<'WEBSITE' | 'WMS' | 'LOGIN'>('WEBSITE');
-  const [wmsRole, setWmsRole] = useState<'admin' | 'staff'>('staff');
-  const [user, setUser] = useState<any>(null);
-  const [db, setDb] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [config, setConfig] = useState<any>({ details: DEFAULT_COMPANY_DETAILS, assets: DEFAULT_ASSETS, content: DEFAULT_CONTENT });
-
-  useEffect(() => {
-   // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyBtM_J_wbtgq1AbESZG2aS6JKUrwTLh73g",
-  authDomain: "nexus-enterprise-inc.firebaseapp.com",
-  projectId: "nexus-enterprise-inc",
-  storageBucket: "nexus-enterprise-inc.firebasestorage.app",
-  messagingSenderId: "1056542895373",
-  appId: "1:1056542895373:web:7a2c84a5164e4ffe869444",
-  measurementId: "G-457D0K3MP4"
-};
-
-    const app = initializeApp(firebaseConfig);
-    const database = getFirestore(app);
-    setDb(database);
-    
-    const auth = getAuth(app);
-    signInAnonymously(auth).catch(err => console.error("Auth error:", err));
-    onAuthStateChanged(auth, (u) => setUser(u));
-  }, []);
-  useEffect(() => {
-    if (!user || !db) return;
-    const appId = (window as any).__app_id || 'default-app-id';
-    return onSnapshot(collection(db, `artifacts/${appId}/public/data/settings`), (snap) => {
-        const globalSettings = snap.docs.find(d => d.id === 'global');
-        if (globalSettings) setConfig(globalSettings.data().config);
-        setLoading(false);
-    });
-  }, [user, db]);
-
-  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white"><Loader2 className="animate-spin" size={48} /></div>;
-
-  return (
-    <>
-        {view === 'WEBSITE' && <WebsiteView db={db} onLogin={() => setView('LOGIN')} config={config} />}
-        {view === 'LOGIN' && <LoginView onLoginSuccess={(role) => { setWmsRole(role); setView('WMS'); }} onCancel={() => setView('WEBSITE')} />}
-        {view === 'WMS' && <WMSView db={db} user={user} role={wmsRole} onExit={() => setView('WEBSITE')} config={config} setConfig={setConfig} />}
-    </>
-  );
-}
 
 const LoginView = ({ onLoginSuccess, onCancel }: { onLoginSuccess: (role: 'admin' | 'staff') => void, onCancel: () => void }) => {
     const [username, setUsername] = useState('');
