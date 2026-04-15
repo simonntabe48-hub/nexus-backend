@@ -1,17 +1,25 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  X, CheckCircle, AlertTriangle, Info, MapPin, Phone, Facebook, Linkedin, Star, MessageCircle, Package, Lock, MenuIcon, CalendarDays, FileSignature, Server, Loader2, Search, RefreshCcw, Bot,
-  Smartphone, CreditCard, Landmark, Banknote, ArrowRight, Cog, PaintBucket, Zap, Sparkles, ShoppingCart, Wand2, Truck, Settings, Cpu, Hammer, Wrench, Car, KeyRound,
-    UserCheck, ShieldCheck, UserCog, LayoutDashboard, Target, Activity, Unlock, LogOut, DollarSign, Layers, Trash2, Edit, PieChart, BarChart3, ImageIcon, Upload, Type, FileText, Camera, Check, Tag, ClipboardList, CheckSquare, MessageSquare, Calculator, Copy, Send
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { 
+  Phone, Mail, MapPin, Menu, X, ArrowRight, CheckCircle, Search, Car, Wrench, 
+  ShoppingCart, Shield, Clock, Award, Facebook, Instagram, Linkedin, ChevronDown, 
+  Hammer, Zap, PaintBucket, Cog, Loader2, Star, CalendarDays, LayoutDashboard, 
+  Calculator, Plus, AlertTriangle, Users, Trash2, Edit, Settings, Target, Lock, 
+  Database, FileText, Download, Activity, DollarSign, CreditCard, Building, 
+  History, Scale, Sparkles, RefreshCw, UserPlus, Upload, ImageIcon, Camera, 
+  Briefcase, HardHat, TrendingUp, TrendingDown, Percent, Package, List, Layers, 
+  Tag, Banknote, Wallet, Receipt, Info, Landmark, FileOutput, BarChart3, 
+  UserCheck, Printer, Share2, Smartphone, Send, PieChart, BookOpen, Calendar, 
+  Wifi, WifiOff, LogOut, KeyRound, ShieldAlert, ShieldCheck, RefreshCcw, Server, 
+  FileSignature, Eye, Copy, Image as ImageIcon2, ArrowDownCircle, Globe, LogIn, 
+  MoreHorizontal, Check, EyeOff, File, MessageCircle, Cpu, UserCog, CheckSquare, ClipboardList, Tag as TagIcon,
+  Wand2, Type, Truck, MenuIcon, Bot, MessageSquare, Unlock
 } from 'lucide-react';
-// ...existing code...
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc, setLogLevel, deleteDoc, setDoc, getDoc, query, where, getDocs, orderBy } from 'firebase/firestore';
 
-// MAIN APP COMPONENT (must be exported for Vercel build)
-const App = () => {
-    // You likely want to render either WebsiteView or WMSView based on auth/config
-    // This is a placeholder. Replace with your actual app logic as needed.
-    return <div>Replace with your main app logic (WebsiteView, WMSView, etc.)</div>;
-};
+// --- GLOBAL CONFIGURATION & ASSETS ---
+setLogLevel('error');
 
 const IMAGES = {
   HERO_SPRAY: "IMG_1957.jpg", 
@@ -61,6 +69,18 @@ const DEFAULT_COMPANY_DETAILS = {
     logoUrl: IMAGES.LOGO,
 };
 
+const DEFAULT_PAYMENTS = {
+    mpesaNumber: "+266 5899 6795",
+    mpesaName: "Spray Bar WS",
+    ecocashNumber: "+266 6333 8188",
+    ecocashName: "Spray Bar WS",
+    bankName: "Standard Lesotho Bank",
+    bankAcc: "9080000000000",
+    bankBranch: "060667",
+    cardNotes: "Secure payment links are provided on your digital invoices. You may also pay directly via POS machine at our Maseru workshop.",
+    footerName: "Spray Bar_WS"
+};
+
 const DEFAULT_ASSETS = {
     companyProfile: false,
     serviceCatalog: false,
@@ -81,7 +101,11 @@ interface Lead { id: string; name: string; phone: string; vehicle: string; servi
 interface Product { id: string; name: string; category: string; price: number; stock: number; image?: string; }
 
 // --- HELPERS ---
-const formatCurrency = (amount: number) => `R ${amount.toLocaleString()}`;
+const formatCurrency = (amount: number) => {
+    // If amount is undefined, null, or not a number, default to 0
+    const safeAmount = Number(amount) || 0;
+    return `R ${safeAmount.toLocaleString()}`;
+};
 
 const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -94,9 +118,9 @@ const compressImage = (file: File): Promise<string> => {
                 const canvas = document.createElement('canvas');
                 let width = img.width;
                 let height = img.height;
-                // Increased dimensions to support high-resolution displays
-                const MAX_WIDTH = 2560;
-                const MAX_HEIGHT = 2560;
+                // Support 4K high-resolution displays
+                const MAX_WIDTH = 3840;
+                const MAX_HEIGHT = 3840;
 
                 if (width > height) {
                     if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
@@ -109,14 +133,26 @@ const compressImage = (file: File): Promise<string> => {
                 const ctx = canvas.getContext('2d');
                 ctx?.drawImage(img, 0, 0, width, height);
                 
-                // Start with maximum WebP quality
                 let quality = 0.95;
                 let dataUrl = canvas.toDataURL('image/webp', quality);
                 
-                // Dynamically reduce quality to safely stay under Firestore's 1MB limit (~900k base64 chars)
-                while (dataUrl.length > 900000 && quality > 0.4) {
-                    quality -= 0.05;
+                // Stay under Firestore's 1MB doc limit (safe limit ~950k base64 chars per document)
+                while (dataUrl.length > 950000 && quality > 0.4) {
+                    quality -= 0.1;
                     dataUrl = canvas.toDataURL('image/webp', quality);
+                }
+
+                // If still too large, aggressively scale dimensions to guarantee it saves
+                if (dataUrl.length > 950000) {
+                    let scale = 0.8;
+                    while (dataUrl.length > 950000 && scale > 0.3) {
+                        canvas.width = width * scale;
+                        canvas.height = height * scale;
+                        ctx?.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        dataUrl = canvas.toDataURL('image/webp', 0.6);
+                        scale -= 0.2;
+                    }
                 }
                 
                 resolve(dataUrl);
@@ -125,6 +161,34 @@ const compressImage = (file: File): Promise<string> => {
         };
         reader.onerror = (err) => reject(err);
     });
+};
+
+const FirestoreImage = ({ src, fallback, className, alt, db }: { src?: string, fallback: string, className?: string, alt?: string, db: any }) => {
+    const [imgSrc, setImgSrc] = useState<string>(fallback);
+
+    useEffect(() => {
+        if (!src) { 
+            setImgSrc(fallback); 
+            return; 
+        }
+        if (src.startsWith('data:') || src.startsWith('http') || src.includes('.')) {
+            setImgSrc(src);
+            return;
+        }
+        if (src.startsWith('asset:')) {
+            const docId = src.replace('asset:', '');
+            const appId = (window as any).__app_id || 'default-app-id';
+            getDoc(doc(db, `artifacts/${appId}/public/data/assets`, docId)).then(snap => {
+                if (snap.exists() && snap.data().fileData) {
+                    setImgSrc(snap.data().fileData);
+                } else {
+                    setImgSrc(fallback);
+                }
+            }).catch(() => setImgSrc(fallback));
+        }
+    }, [src, fallback, db]);
+
+    return <img src={imgSrc} className={className} alt={alt} />;
 };
 
 // --- COMPONENTS ---
@@ -317,6 +381,52 @@ const CheckoutModal = ({ db, item, onClose, showToast }: { db: any, item: any, o
     );
 };
 
+const PaymentModal = ({ onClose, config }: { onClose: () => void, config: any }) => {
+    const p = config?.payments || DEFAULT_PAYMENTS;
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+                <div className="bg-slate-900 p-6 flex flex-col relative">
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="font-black text-xl uppercase tracking-tight text-white flex items-center gap-2"><ShieldCheck size={20} className="text-green-500"/> Secure Payments</h3>
+                        <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors bg-white/10 p-2 rounded-full"><X size={20} /></button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Official Spray Bar Accounts</p>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 hover:border-red-300 transition-colors">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-black uppercase tracking-widest text-slate-800 flex items-center gap-2"><Smartphone size={16} className="text-red-500"/> M-Pesa</span>
+                        </div>
+                        <p className="text-xl font-black text-slate-900">{p.mpesaNumber}</p>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">Registered Name: {p.mpesaName}</p>
+                    </div>
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 hover:border-blue-300 transition-colors">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-black uppercase tracking-widest text-slate-800 flex items-center gap-2"><Smartphone size={16} className="text-blue-500"/> EcoCash</span>
+                        </div>
+                        <p className="text-xl font-black text-slate-900">{p.ecocashNumber}</p>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">Registered Name: {p.ecocashName}</p>
+                    </div>
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 hover:border-green-300 transition-colors">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-black uppercase tracking-widest text-slate-800 flex items-center gap-2"><Landmark size={16} className="text-green-600"/> Bank Transfer / EFT</span>
+                        </div>
+                        <p className="text-sm font-bold text-slate-900">{p.bankName}</p>
+                        <p className="text-[10px] font-bold text-slate-600 uppercase mt-1">Acc: {p.bankAcc} | Branch: {p.bankBranch}</p>
+                    </div>
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 hover:border-slate-400 transition-colors">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-black uppercase tracking-widest text-slate-800 flex items-center gap-2"><CreditCard size={16} className="text-slate-800"/> Visa & Mastercard</span>
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-600 uppercase leading-relaxed">{p.cardNotes}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const DriveMasterRetail = ({ db, config, showToast, onCheckout, liveInventory }: { db: any, config: any, showToast: any, onCheckout: (item: any) => void, liveInventory: Product[] }) => {
     const [loadingCatalog, setLoadingCatalog] = useState(false);
 
@@ -481,9 +591,15 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
         // If AI recommendations exist, show only those
         if (aiRecommendations.length > 0) return aiRecommendations.includes(p.id);
         
+        // Safe fallbacks in case database items are missing names or brands
+        const safeName = p.name || '';
+        const safeBrand = p.brand || '';
+        const safeSearch = search || '';
+
         // Otherwise use standard search & category
         return (category === 'All' || p.category === category) &&
-               (p.name.toLowerCase().includes(search.toLowerCase()) || p.brand.toLowerCase().includes(search.toLowerCase()));
+               (safeName.toLowerCase().includes(safeSearch.toLowerCase()) || 
+                safeBrand.toLowerCase().includes(safeSearch.toLowerCase()));
     });
 
     return (
@@ -610,9 +726,11 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
     );
 };
 
+const WebsiteView = ({ db, onLogin, config }: { db: any, onLogin: () => void, config: any }) => {
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [quoteMode, setQuoteMode] = useState<'quote' | 'booking'>('quote');
     const [checkoutItem, setCheckoutItem] = useState<any>(null);
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [trackId, setTrackId] = useState('');
     const [trackStatus, setTrackStatus] = useState<any>(null);
     const [trackLoading, setTrackLoading] = useState(false);
@@ -677,7 +795,7 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
                             <a href={COMPANY.socials.facebook} target="_blank" rel="noreferrer" className="hover:text-blue-500 transition-colors" title="Facebook"><Facebook size={12}/></a>
                             <a href={COMPANY.socials.linkedin} target="_blank" rel="noreferrer" className="hover:text-blue-400 transition-colors" title="LinkedIn"><Linkedin size={12}/></a>
                             <a href={COMPANY.socials.googleBusiness} target="_blank" rel="noreferrer" className="hover:text-orange-400 transition-colors" title="Google Business"><Star size={12}/></a>
-                            <a href={`https://wa.me/${COMPANY.whatsapp}`} target="_blank" rel="noreferrer" className="hover:text-green-500 transition-colors" title="WhatsApp Support"><MessageCircle size={12}/></a>
+                            <a href={`https://wa.me/${COMPANY.whatsapp}?text=${encodeURIComponent("Hello Spray Bar Team!")}`} target="_blank" rel="noreferrer" className="hover:text-green-500 transition-colors" title="WhatsApp Support"><MessageCircle size={12}/></a>
                         </div>
                     </div>
                 </div>
@@ -716,7 +834,7 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
             {/* HERO SECTION */}
             <section id="home" className="relative min-h-screen flex items-center pt-32">
                 <div className="absolute inset-0 z-0">
-                    <img src={config.assets?.heroImage || IMAGES.HERO_SPRAY} className="w-full h-full object-cover" />
+                    <FirestoreImage src={config.assets?.heroImage} fallback={IMAGES.HERO_SPRAY} className="w-full h-full object-cover" db={db} />
                     <div className="absolute inset-0 bg-slate-900/80"></div>
                 </div>
                 <div className="relative z-10 max-w-7xl mx-auto px-4 grid md:grid-cols-2 gap-12 items-center">
@@ -731,7 +849,7 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
                         <div className="flex flex-wrap gap-4">
                             <button onClick={() => { setQuoteMode('booking'); setIsQuoteModalOpen(true); }} className="bg-orange-600 hover:bg-orange-500 text-white px-8 py-4 rounded-full font-black uppercase text-sm tracking-widest flex items-center gap-2 transition-colors">Book Service <CalendarDays size={18}/></button>
                             <button onClick={() => { setQuoteMode('quote'); setIsQuoteModalOpen(true); }} className="bg-white text-slate-900 px-8 py-4 rounded-full font-black uppercase text-sm tracking-widest flex items-center gap-2 transition-colors">Request Quote <FileSignature size={18}/></button>
-                            <a href={`https://wa.me/${COMPANY.whatsapp}`} className="bg-slate-900/50 backdrop-blur-md border border-slate-700 text-white px-8 py-4 rounded-full font-black uppercase text-sm flex items-center gap-2 hover:bg-slate-800 transition-colors">Customer Support <MessageCircle size={18}/></a>
+                            <a href={`https://wa.me/${COMPANY.whatsapp}?text=${encodeURIComponent("Hello Spray Bar Team! I am reaching out from your website and need some assistance.")}`} target="_blank" rel="noreferrer" className="bg-slate-900/50 backdrop-blur-md border border-slate-700 text-white px-8 py-4 rounded-full font-black uppercase text-sm flex items-center gap-2 hover:bg-slate-800 transition-colors">Customer Support <MessageCircle size={18}/></a>
                         </div>
                     </div>
                     <div className="bg-white/10 backdrop-blur-xl p-8 rounded-3xl border border-white/20">
@@ -779,7 +897,7 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
                             <h4 className="font-black text-white uppercase text-sm mb-2">Request Quote</h4>
                             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">Request a clear quotation for repair, paint, fleet, or workshop service work.</p>
                         </button>
-                        <a href={`https://wa.me/${COMPANY.whatsapp}`} target="_blank" rel="noreferrer" className="block text-left bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:border-green-500 group transition-all">
+                        <a href={`https://wa.me/${COMPANY.whatsapp}?text=${encodeURIComponent("Hello Spray Bar Team! I am on your website and would like to contact support regarding a service.")}`} target="_blank" rel="noreferrer" className="block text-left bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:border-green-500 group transition-all">
                             <MessageCircle className="text-green-500 mb-4 group-hover:scale-110 transition-transform" size={24} />
                             <h4 className="font-black text-white uppercase text-sm mb-2">Contact Support</h4>
                             <p className="text-[10px] text-slate-400 font-medium leading-relaxed">Reach Spray Bar via WhatsApp for customer assistance, booking help, and service enquiries.</p>
@@ -838,7 +956,7 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
                         </div>
                     </div>
                     <div className="relative rounded-3xl overflow-hidden shadow-2xl h-full min-h-[600px] lg:h-[800px]">
-                        <img src={config.assets?.serviceImages?.panel || IMAGES.ASSESSOR} className="absolute inset-0 w-full h-full object-cover" alt="About Us" />
+                        <FirestoreImage src={config.assets?.serviceImages?.panel} fallback={IMAGES.ASSESSOR} className="absolute inset-0 w-full h-full object-cover" alt="About Us" db={db} />
                     </div>
                 </div>
             </section>
@@ -852,19 +970,19 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
                     </div>
                     <div className="grid md:grid-cols-3 gap-8">
                         {[
-                            { icon: PaintBucket, title: "Spray Painting", desc: "Expert computerized color matching.", img: config.assets?.serviceImages?.paint || IMAGES.HERO_SPRAY },
-                            { icon: Hammer, title: "Panel Beating", desc: "Advanced structural repairs.", img: config.assets?.serviceImages?.panel || IMAGES.ASSESSOR },
-                            { icon: Cog, title: "Mechanical Repairs", desc: "Comprehensive engine diagnostics.", img: config.assets?.serviceImages?.mech || IMAGES.MECHANIC },
-                            { icon: Zap, title: "Auto Electrical", desc: "Professional electrical analysis.", img: config.assets?.serviceImages?.elec || IMAGES.POLISHING },
-                            { icon: Truck, title: "Towing & Recovery", desc: "24/7 Rollback towing from accident scenes.", img: config.assets?.serviceImages?.towing || IMAGES.MECHANIC },
-                            { icon: Settings, title: "Suspension", desc: "Shocks, struts, and steering repairs.", img: config.assets?.serviceImages?.suspension || IMAGES.MECHANIC },
-                            { icon: Wrench, title: "Chassis Straightening", desc: "Specialized 3D frame alignment.", img: config.assets?.serviceImages?.chassis || IMAGES.MECHANIC },
-                            { icon: Car, title: "Tyres & Alignment", desc: "Wheel balancing, alignment, and new tyres.", img: config.assets?.serviceImages?.tyres || IMAGES.MECHANIC },
-                            { icon: Sparkles, title: "Polishing & Detailing", desc: "Showroom-quality finishing.", img: config.assets?.serviceImages?.polish || IMAGES.POLISHING }
+                            { icon: PaintBucket, title: "Spray Painting", desc: "Expert computerized color matching.", img: config.assets?.serviceImages?.paint, fallback: IMAGES.HERO_SPRAY },
+                            { icon: Hammer, title: "Panel Beating", desc: "Advanced structural repairs.", img: config.assets?.serviceImages?.panel, fallback: IMAGES.ASSESSOR },
+                            { icon: Cog, title: "Mechanical Repairs", desc: "Comprehensive engine diagnostics.", img: config.assets?.serviceImages?.mech, fallback: IMAGES.MECHANIC },
+                            { icon: Zap, title: "Auto Electrical", desc: "Professional electrical analysis.", img: config.assets?.serviceImages?.elec, fallback: IMAGES.POLISHING },
+                            { icon: Truck, title: "Towing & Recovery", desc: "24/7 Rollback towing from accident scenes.", img: config.assets?.serviceImages?.towing, fallback: IMAGES.MECHANIC },
+                            { icon: Settings, title: "Suspension", desc: "Shocks, struts, and steering repairs.", img: config.assets?.serviceImages?.suspension, fallback: IMAGES.MECHANIC },
+                            { icon: Wrench, title: "Chassis Straightening", desc: "Specialized 3D frame alignment.", img: config.assets?.serviceImages?.chassis, fallback: IMAGES.MECHANIC },
+                            { icon: Car, title: "Tyres & Alignment", desc: "Wheel balancing, alignment, and new tyres.", img: config.assets?.serviceImages?.tyres, fallback: IMAGES.MECHANIC },
+                            { icon: Sparkles, title: "Polishing & Detailing", desc: "Showroom-quality finishing.", img: config.assets?.serviceImages?.polish, fallback: IMAGES.POLISHING }
                         ].map((s, idx) => (
                             <div key={idx} className="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all border border-slate-100 group">
                                 <div className="h-48 overflow-hidden relative">
-                                    <img src={s.img} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={s.title} />
+                                    <FirestoreImage src={s.img} fallback={s.fallback} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={s.title} db={db} />
                                 </div>
                                 <div className="p-8 relative">
                                     <div className="absolute -top-6 right-6 w-12 h-12 bg-blue-600 rounded-xl text-white flex items-center justify-center shadow-lg group-hover:-translate-y-2 transition-transform">
@@ -921,17 +1039,17 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
                     </div>
                     
                     <div className="flex justify-center gap-4 mb-8">
-                        <a href={`https://wa.me/${COMPANY.whatsapp}`} target="_blank" rel="noreferrer" className="w-12 h-12 bg-slate-900 border border-slate-800 rounded-full flex items-center justify-center text-green-500 hover:bg-green-500 hover:text-white transition-colors" title="WhatsApp Support"><MessageCircle size={20}/></a>
+                        <a href={`https://wa.me/${COMPANY.whatsapp}?text=${encodeURIComponent("Hello Spray Bar Team!")}`} target="_blank" rel="noreferrer" className="w-12 h-12 bg-slate-900 border border-slate-800 rounded-full flex items-center justify-center text-green-500 hover:bg-green-500 hover:text-white transition-colors" title="WhatsApp Support"><MessageCircle size={20}/></a>
                         <a href={COMPANY.socials.facebook} target="_blank" rel="noreferrer" className="w-12 h-12 bg-slate-900 border border-slate-800 rounded-full flex items-center justify-center text-blue-600 hover:bg-blue-600 hover:text-white transition-colors" title="Facebook"><Facebook size={20}/></a>
                         <a href={COMPANY.socials.linkedin} target="_blank" rel="noreferrer" className="w-12 h-12 bg-slate-900 border border-slate-800 rounded-full flex items-center justify-center text-blue-400 hover:bg-blue-400 hover:text-white transition-colors" title="LinkedIn"><Linkedin size={20}/></a>
                         <a href={COMPANY.socials.googleBusiness} target="_blank" rel="noreferrer" className="w-12 h-12 bg-slate-900 border border-slate-800 rounded-full flex items-center justify-center text-orange-500 hover:bg-orange-500 hover:text-white transition-colors" title="Google Business"><Star size={20}/></a>
                     </div>
 
                     <div className="flex justify-center gap-6 mb-8 text-slate-500 flex-wrap">
-                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest"><Smartphone size={14}/> M-Pesa</div>
-                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest"><Smartphone size={14}/> EcoCash</div>
-                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest"><CreditCard size={14}/> Visa & Mastercard</div>
-                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest"><Landmark size={14}/> Instant EFT</div>
+                        <button onClick={() => setIsPaymentModalOpen(true)} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:text-red-500 transition-colors"><Smartphone size={14}/> M-Pesa</button>
+                        <button onClick={() => setIsPaymentModalOpen(true)} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:text-blue-500 transition-colors"><Smartphone size={14}/> EcoCash</button>
+                        <button onClick={() => setIsPaymentModalOpen(true)} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:text-slate-300 transition-colors"><CreditCard size={14}/> Visa & Mastercard</button>
+                        <button onClick={() => setIsPaymentModalOpen(true)} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:text-green-500 transition-colors"><Landmark size={14}/> Instant EFT</button>
                     </div>
 
                     <div className="flex flex-col items-center justify-center pt-8 border-t border-slate-800/50 mt-8">
@@ -943,7 +1061,7 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
                             <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest">System Status: Online</span>
                         </div>
                         <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
-                            &copy; {new Date().getFullYear()} Spray Bar_WS | Nexus System Enabled
+                            &copy; {new Date().getFullYear()} {config?.payments?.footerName || 'Spray Bar_WS'} | Nexus System Enabled
                         </p>
                     </div>
                 </div>
@@ -951,6 +1069,7 @@ Return ONLY a valid JSON array of their exact string IDs. Example format: ["1", 
 
             {isQuoteModalOpen && <QuoteModal db={db} onClose={() => setIsQuoteModalOpen(false)} initialMode={quoteMode} />}
             {checkoutItem && <CheckoutModal db={db} item={checkoutItem} onClose={() => setCheckoutItem(null)} showToast={showToast} />}
+            {isPaymentModalOpen && <PaymentModal onClose={() => setIsPaymentModalOpen(false)} config={config} />}
         </div>
     );
 };
@@ -978,6 +1097,10 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
     const [liveContent, setLiveContent] = useState({ heroTitle: '', heroSubtitle: '' });
     const [aiLoading, setAiLoading] = useState<string | null>(null);
     const [isSavingContent, setIsSavingContent] = useState(false);
+
+    // Payments Configuration State
+    const [livePayments, setLivePayments] = useState(DEFAULT_PAYMENTS);
+    const [isSavingPayments, setIsSavingPayments] = useState(false);
 
     // AI Diagnostic State
     const [diagVehicle, setDiagVehicle] = useState('');
@@ -1018,16 +1141,16 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
     useEffect(() => {
         if (!user || !db) return;
         const appId = (window as any).__app_id || 'default-app-id';
-        const unsubJobs = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/jobs`), orderBy('jobCardId', 'desc')), (snap) => {
+        const uJobs = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/jobs`), orderBy('jobCardId', 'desc')), (snap) => {
             setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as Job)));
         });
-        const unsubLeads = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/leads`), orderBy('createdAt', 'desc')), (snap) => {
+        const uLeads = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/leads`), orderBy('createdAt', 'desc')), (snap) => {
             setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() } as Lead)));
         });
-        const unsubProducts = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/inventory`)), (snap) => {
+        const uProducts = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/inventory`)), (snap) => {
             setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
         });
-        return () => { unsubJobs(); unsubLeads(); unsubProducts(); };
+        return () => { uJobs(); uLeads(); uProducts(); };
     }, [db, user]);
 
     useEffect(() => {
@@ -1035,6 +1158,9 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
             heroTitle: config?.content?.heroTitle || DEFAULT_CONTENT.heroTitle,
             heroSubtitle: config?.content?.heroSubtitle || DEFAULT_CONTENT.heroSubtitle
         });
+        if (config?.payments) {
+            setLivePayments(config.payments);
+        }
     }, [config]);
 
     const handleSaveContent = async () => {
@@ -1043,7 +1169,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
         const newConfig = JSON.parse(JSON.stringify(config));
         newConfig.content = liveContent;
         try {
-            await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), { config: newConfig });
+            await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), { config: newConfig }); 
             setConfig(newConfig);
             setUploadSuccess('content');
             showToast("Live Content successfully updated", "success");
@@ -1052,6 +1178,24 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
             showToast("Failed to save content", "error");
         } finally {
             setIsSavingContent(false);
+        }
+    };
+
+    const handleSavePayments = async () => {
+        setIsSavingPayments(true);
+        const appId = (window as any).__app_id || 'default-app-id';
+        const newConfig = JSON.parse(JSON.stringify(config));
+        newConfig.payments = livePayments;
+        try {
+            await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'global'), { config: newConfig }); 
+            setConfig(newConfig);
+            setUploadSuccess('payments');
+            showToast("Payment & Footer Configuration updated", "success");
+            setTimeout(() => setUploadSuccess(null), 3000);
+        } catch (e) {
+            showToast("Failed to save payment configuration", "error");
+        } finally {
+            setIsSavingPayments(false);
         }
     };
 
@@ -1311,7 +1455,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
             if (file.size > 900000) { showToast("File Too Large: PDFs must be under 900KB.", "error"); return; }
         } else {
             if (!isImage) { showToast("Invalid Format: Please upload a valid image (PNG/JPG/WebP).", "error"); return; }
-            if (file.size > 15000000) { showToast("Image Too Large: Images must be under 15MB.", "error"); return; }
+            if (file.size > 25000000) { showToast("Image Too Large: Images must be under 25MB.", "error"); return; }
         }
 
         const uploadId = subType || type;
@@ -1337,16 +1481,23 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                 await setDoc(doc(db, `artifacts/${appId}/public/data/assets`, subType), { fileData: result, updatedAt: new Date().toISOString() });
                 if (!newConfig.assets) newConfig.assets = {};
                 newConfig.assets[subType] = true;
-            } else if (type === 'logo') {
-                if (!newConfig.details) newConfig.details = {};
-                newConfig.details.logoUrl = result;
-            } else if (type === 'asset' && subType) {
-                if (!newConfig.assets) newConfig.assets = {};
-                if (subType === 'heroImage') {
-                    newConfig.assets[subType] = result;
-                } else {
-                    if (!newConfig.assets.serviceImages) newConfig.assets.serviceImages = {};
-                    newConfig.assets.serviceImages[subType] = result;
+            } else if (isImage) {
+                // Save High-Quality images into individual Asset Documents to bypass the 1MB global limit
+                const assetId = `${type}_${subType || 'main'}`;
+                await setDoc(doc(db, `artifacts/${appId}/public/data/assets`, assetId), { fileData: result, updatedAt: new Date().toISOString() });
+                const assetRef = `asset:${assetId}`;
+
+                if (type === 'logo') {
+                    if (!newConfig.details) newConfig.details = {};
+                    newConfig.details.logoUrl = assetRef;
+                } else if (type === 'asset' && subType) {
+                    if (!newConfig.assets) newConfig.assets = {};
+                    if (subType === 'heroImage') {
+                        newConfig.assets[subType] = assetRef;
+                    } else {
+                        if (!newConfig.assets.serviceImages) newConfig.assets.serviceImages = {};
+                        newConfig.assets.serviceImages[subType] = assetRef;
+                    }
                 }
             }
 
@@ -1450,7 +1601,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                 <KeyRound size={28} className="text-white" />
                             </div>
                             <h3 className="font-black text-xl text-white uppercase tracking-tight mb-2">Restricted Access</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-8 leading-relaxed">This module requires elevated permissions. Please enter the System Admin OTP sent to the supervisor's phone to temporarily unlock.</p>
+                            <p className="text-xs text-slate-400 font-medium mb-8 leading-relaxed">This module requires elevated permissions. Please enter the System Admin OTP sent to the supervisor's phone to temporarily unlock.</p>
                             
                             <form onSubmit={handleVerifyOtp}>
                                 <input 
@@ -1773,7 +1924,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                                     <button onClick={() => setEditingJob(j)} className="text-slate-500 hover:text-white transition-colors bg-slate-800 p-2 rounded-lg border border-slate-700 hover:border-blue-500">
                                                         <Edit size={16} />
                                                     </button>
-                                                    <button onClick={() => handleDeleteJob(j.id)} className="text-slate-500 hover:text-red-400 transition-colors bg-slate-800 p-2 rounded-lg border border-slate-700 hover:border-red-500/50" title="Delete Job Card">
+                                                    <button onClick={() => handleDeleteJob(j.id)} className="text-slate-500 hover:text-red-400 transition-colors bg-slate-800 p-2 rounded-lg border border-slate-700 hover:border-red-500">
                                                         <Trash2 size={16} />
                                                     </button>
                                                 </div>
@@ -1959,7 +2110,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     <textarea 
                                         rows={4}
                                         placeholder="e.g. Rough idle, P0300 code, smells like burning rubber near the belt..."
-                                        className="w-full bg-slate-900 border border-slate-700 text-slate-300 p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none resize-none"
+                                        className="w-full bg-slate-900 border border-slate-700 text-slate-300 p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none resize-none placeholder:text-slate-600"
                                         value={diagSymptoms}
                                         onChange={e => setDiagSymptoms(e.target.value)}
                                     ></textarea>
@@ -2009,13 +2160,13 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     <div className="flex items-center gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
                                         <div className="w-16 h-16 bg-white rounded-lg flex items-center justify-center p-2 relative overflow-hidden">
                                             {uploading === 'logo' && <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10"><Loader2 className="animate-spin text-blue-500" size={20}/></div>}
-                                            <img src={config?.details?.logoUrl || IMAGES.LOGO} className="max-w-full max-h-full object-contain" alt="Logo" />
+                                            <FirestoreImage src={config?.details?.logoUrl} fallback={IMAGES.LOGO} className="max-w-full max-h-full object-contain" alt="Logo" db={db} />
                                         </div>
                                         <div className="flex-1">
                                             <button onClick={() => fileInputRefs.current['logo']?.click()} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors w-full flex items-center justify-center gap-2"><Upload size={14}/> Upload Logo</button>
-                                            <p className="text-[10px] text-slate-500 font-bold uppercase mt-2 text-center">Format: PNG, JPG (Max 10MB)</p>
+                                            <p className="text-[10px] text-slate-500 font-bold uppercase mt-2 text-center">Format: PNG, JPG (Max 25MB)</p>
                                         </div>
-                                        <input type="file" ref={el => { fileInputRefs.current['logo'] = el; }} className="hidden" accept="image/png, image/jpeg" onChange={(e) => handleAssetUpload(e, 'logo')} />
+                                        <input type="file" ref={el => fileInputRefs.current['logo'] = el} className="hidden" accept="image/png, image/jpeg" onChange={(e) => handleAssetUpload(e, 'logo')} />
                                     </div>
                                 </div>
 
@@ -2023,18 +2174,18 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex justify-between">Homepage Hero Banner {uploadSuccess === 'heroImage' && <span className="text-green-400">Updated!</span>}</label>
                                     <div onClick={() => fileInputRefs.current['hero']?.click()} className="relative h-40 bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden group cursor-pointer">
                                         {uploading === 'heroImage' && <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center z-10"><Loader2 className="animate-spin text-blue-500" size={24}/></div>}
-                                        <img src={config?.assets?.heroImage || IMAGES.HERO_SPRAY} className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity" alt="Hero" />
-                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <div className="bg-slate-900 text-white p-2 rounded-full shadow-lg border border-slate-700"><Upload size={14} /></div>
+                                        <FirestoreImage src={config?.assets?.heroImage} fallback={IMAGES.HERO_SPRAY} className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity" alt="Hero" db={db} />
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <div className="bg-slate-900/80 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center gap-2 group-hover:scale-105 transition-transform"><Upload size={14}/> Upload Hero Image</div>
                                         </div>
-                                        <input type="file" ref={el => { fileInputRefs.current['hero'] = el; }} className="hidden" accept="image/png, image/jpeg" onChange={(e) => handleAssetUpload(e, 'asset', 'heroImage')} />
+                                        <input type="file" ref={el => fileInputRefs.current['hero'] = el} className="hidden" accept="image/png, image/jpeg" onChange={(e) => handleAssetUpload(e, 'asset', 'heroImage')} />
                                     </div>
                                 </div>
                             </div>
 
                             {/* Marketing Content & AI Automation */}
                             <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/50 backdrop-blur-sm space-y-6 flex flex-col">
-                                <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-slate-700/50 pb-4">
+                                <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center justify-between border-b border-slate-700/50 pb-4">
                                     <span className="flex items-center gap-2"><Type size={16} className="text-green-500"/> Live Content & AI Copy</span>
                                     {uploadSuccess === 'content' && <span className="text-[10px] text-green-400 font-bold bg-green-500/10 px-2 py-1 rounded">Changes Live</span>}
                                 </h4>
@@ -2069,7 +2220,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     ></textarea>
                                 </div>
 
-                                <button onClick={handleSaveContent} disabled={isSavingContent} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-colors shadow-lg shadow-green-900/20 flex items-center justify-center gap-2">
+                                <button onClick={handleSaveContent} disabled={isSavingContent} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-colors shadow-lg shadow-green-900/20 flex items-center justify-center gap-2 mt-auto">
                                     {isSavingContent ? <Loader2 className="animate-spin" size={16} /> : 'Save Content to Live Site'}
                                 </button>
                             </div>
@@ -2088,7 +2239,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     <button onClick={() => fileInputRefs.current['profile']?.click()} className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center gap-2 w-full sm:w-auto justify-center">
                                         {uploading === 'companyProfile' ? <Loader2 className="animate-spin text-orange-500" size={14}/> : <><Upload size={14}/> Upload PDF</>}
                                     </button>
-                                    <input type="file" ref={el => { fileInputRefs.current['profile'] = el; }} className="hidden" accept="application/pdf" onChange={(e) => handleAssetUpload(e, 'asset', 'companyProfile')} />
+                                    <input type="file" ref={el => fileInputRefs.current['profile'] = el} className="hidden" accept="application/pdf" onChange={(e) => handleAssetUpload(e, 'asset', 'companyProfile')} />
                                 </div>
 
                                 <div className="bg-slate-900/50 p-5 rounded-xl border border-slate-700/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -2101,8 +2252,61 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     <button onClick={() => fileInputRefs.current['catalog']?.click()} className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center gap-2 w-full sm:w-auto justify-center">
                                         {uploading === 'serviceCatalog' ? <Loader2 className="animate-spin text-orange-500" size={14}/> : <><Upload size={14}/> Upload PDF</>}
                                     </button>
-                                    <input type="file" ref={el => { fileInputRefs.current['catalog'] = el; }} className="hidden" accept="application/pdf" onChange={(e) => handleAssetUpload(e, 'asset', 'serviceCatalog')} />
+                                    <input type="file" ref={el => fileInputRefs.current['catalog'] = el} className="hidden" accept="application/pdf" onChange={(e) => handleAssetUpload(e, 'asset', 'serviceCatalog')} />
                                 </div>
+                            </div>
+
+                            {/* Financial & Platform Integrations */}
+                            <div className="col-span-1 xl:col-span-2 bg-slate-800/40 p-6 rounded-2xl border border-slate-700/50 backdrop-blur-sm space-y-6">
+                                <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center justify-between border-b border-slate-700/50 pb-4">
+                                    <span className="flex items-center gap-2"><CreditCard size={16} className="text-blue-500"/> Financial & Platform Integrations</span>
+                                    {uploadSuccess === 'payments' && <span className="text-[10px] text-green-400 font-bold bg-green-500/10 px-2 py-1 rounded">Changes Live</span>}
+                                </h4>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* M-Pesa */}
+                                    <div className="space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2"><Smartphone size={14} className="text-red-500"/> M-Pesa Settings</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input type="text" placeholder="Number" value={livePayments.mpesaNumber} onChange={e => setLivePayments({...livePayments, mpesaNumber: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none" />
+                                            <input type="text" placeholder="Name" value={livePayments.mpesaName} onChange={e => setLivePayments({...livePayments, mpesaName: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none" />
+                                        </div>
+                                    </div>
+
+                                    {/* EcoCash */}
+                                    <div className="space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2"><Smartphone size={14} className="text-blue-500"/> EcoCash Settings</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input type="text" placeholder="Number" value={livePayments.ecocashNumber} onChange={e => setLivePayments({...livePayments, ecocashNumber: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none" />
+                                            <input type="text" placeholder="Name" value={livePayments.ecocashName} onChange={e => setLivePayments({...livePayments, ecocashName: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none" />
+                                        </div>
+                                    </div>
+
+                                    {/* EFT Bank details */}
+                                    <div className="space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 md:col-span-2">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2"><Landmark size={14} className="text-green-500"/> Bank Transfer / EFT Settings</label>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                            <input type="text" placeholder="Bank Name" value={livePayments.bankName} onChange={e => setLivePayments({...livePayments, bankName: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none" />
+                                            <input type="text" placeholder="Account Number" value={livePayments.bankAcc} onChange={e => setLivePayments({...livePayments, bankAcc: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none" />
+                                            <input type="text" placeholder="Branch Code" value={livePayments.bankBranch} onChange={e => setLivePayments({...livePayments, bankBranch: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none" />
+                                        </div>
+                                    </div>
+
+                                    {/* Card Notes & Footer */}
+                                    <div className="space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2"><CreditCard size={14} className="text-slate-400"/> Visa / Mastercard Instructions</label>
+                                        <textarea rows={2} value={livePayments.cardNotes} onChange={e => setLivePayments({...livePayments, cardNotes: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-slate-300 p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none resize-none"></textarea>
+                                    </div>
+                                    
+                                    <div className="space-y-3 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2"><Type size={14} className="text-purple-400"/> Footer Company Name</label>
+                                        <input type="text" placeholder="Company Name for Footer" value={livePayments.footerName} onChange={e => setLivePayments({...livePayments, footerName: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl font-bold text-sm focus:border-blue-500 outline-none" />
+                                    </div>
+                                </div>
+
+                                <button onClick={handleSavePayments} disabled={isSavingPayments} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-colors shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2">
+                                    {isSavingPayments ? <Loader2 className="animate-spin" size={16} /> : 'Save Financial Integrations'}
+                                </button>
                             </div>
                         </div>
 
@@ -2119,12 +2323,12 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                         </label>
                                         <div onClick={() => fileInputRefs.current[service.id]?.click()} className="relative h-28 bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden group cursor-pointer hover:border-blue-500/50 transition-colors">
                                             {uploading === service.id && <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center z-10"><Loader2 className="animate-spin text-blue-500" size={20}/></div>}
-                                            <img src={config?.assets?.serviceImages?.[service.id] || DEFAULT_ASSETS.serviceImages[service.id as keyof typeof DEFAULT_ASSETS.serviceImages] || IMAGES.HERO_SPRAY} className="w-full h-full object-cover opacity-40 group-hover:opacity-20 transition-opacity" alt={service.label} />
+                                            <FirestoreImage src={config?.assets?.serviceImages?.[service.id]} fallback={DEFAULT_ASSETS.serviceImages[service.id as keyof typeof DEFAULT_ASSETS.serviceImages] || IMAGES.HERO_SPRAY} className="w-full h-full object-cover opacity-40 group-hover:opacity-20 transition-opacity" alt={service.label} db={db} />
                                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <div className="bg-slate-900 text-white p-2 rounded-full shadow-lg border border-slate-700"><Upload size={16} /></div>
                                             </div>
                                         </div>
-                                        <input type="file" ref={el => { fileInputRefs.current[service.id] = el; }} className="hidden" accept="image/png, image/jpeg" onChange={(e) => handleAssetUpload(e, 'asset', service.id)} />
+                                        <input type="file" ref={el => fileInputRefs.current[service.id] = el} className="hidden" accept="image/png, image/jpeg" onChange={(e) => handleAssetUpload(e, 'asset', service.id)} />
                                     </div>
                                 ))}
                             </div>
@@ -2137,9 +2341,9 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
             {isAddProductOpen && (
                 <div className="fixed inset-0 z-50 bg-[#020617]/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50 shrink-0">
+                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
                             <div>
-                                <h3 className="font-black text-xl text-white uppercase tracking-tight flex items-center gap-2"><Tag size={20} className="text-blue-500"/> Add Inventory Item</h3>
+                                <h3 className="font-black text-xl text-white uppercase tracking-tight flex items-center gap-2"><TagIcon size={20} className="text-blue-500"/> Add Inventory Item</h3>
                                 <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">Drive Master Retail Catalog</p>
                             </div>
                             <button onClick={() => setIsAddProductOpen(false)} className="text-slate-500 hover:text-white bg-slate-800 p-2 rounded-full transition-colors"><X size={20} /></button>
@@ -2211,8 +2415,8 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
             {/* --- JOB EDIT MODAL (PRODUCTION) --- */}
             {editingJob && (
                 <div className="fixed inset-0 z-50 bg-[#020617]/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50 shrink-0">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95">
+                        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
                             <div>
                                 <h3 className="font-black text-xl text-white uppercase tracking-tight flex items-center gap-2"><ClipboardList size={20} className="text-blue-500"/> Update Job Card</h3>
                                 <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">Ref: {editingJob.jobCardId} | {editingJob.vehicle}</p>
@@ -2261,7 +2465,7 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
                                     type="number" 
                                     className="w-full bg-slate-950 border border-slate-700 text-green-400 p-3 rounded-xl font-black focus:border-blue-500 outline-none"
                                     value={editingJob.totalRevenue || 0}
-                                    onChange={e => setEditingJob({...editingJob, totalRevenue: Number(e.target.value)})}
+                                    onChange={e => setEditingJob({...editingJob, totalRevenue: e.target.value})}
                                 />
                             </div>
 
@@ -2384,6 +2588,65 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
         </div>
     );
 };
+
+export default function SprayBarIntegrated() {
+  const [view, setView] = useState<'WEBSITE' | 'WMS' | 'LOGIN'>('WEBSITE');
+  const [wmsRole, setWmsRole] = useState<'admin' | 'staff'>('staff');
+  const [user, setUser] = useState<any>(null);
+  const [db, setDb] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<any>({ details: DEFAULT_COMPANY_DETAILS, assets: DEFAULT_ASSETS, content: DEFAULT_CONTENT });
+
+  useEffect(() => {
+    // 1. Paste YOUR actual Firebase config here
+   const firebaseConfig = {
+  apiKey: "AIzaSyDqA30L_af9Qw4KWFqvRTjzCmCZFqWKfjM",
+  authDomain: "nexus-wms-777d6.firebaseapp.com",
+  projectId: "nexus-wms-777d6",
+  storageBucket: "nexus-wms-777d6.firebasestorage.app",
+  messagingSenderId: "547372260070",
+  appId: "1:547372260070:web:10439e3ceecf64f4ad7927",
+  measurementId: "G-79R57VR4K8"
+};
+
+    try {
+      const app = initializeApp(firebaseConfig);
+      const database = getFirestore(app);
+      setDb(database);
+      
+      const auth = getAuth(app);
+      // Optional: Log them in anonymously so they can read/write data
+      signInAnonymously(auth).catch(console.error);
+      
+      onAuthStateChanged(auth, (u) => {
+        setUser(u);
+      });
+    } catch (error) {
+      console.error("Firebase init error:", error);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user || !db) return;
+    const appId = (window as any).__app_id || 'default-app-id';
+    return onSnapshot(collection(db, `artifacts/${appId}/public/data/settings`), (snap) => {
+        const globalSettings = snap.docs.find(d => d.id === 'global');
+        if (globalSettings) setConfig(globalSettings.data().config);
+        setLoading(false);
+    });
+  }, [user, db]);
+
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white"><Loader2 className="animate-spin" size={48} /></div>;
+
+  return (
+    <>
+        {view === 'WEBSITE' && <WebsiteView db={db} onLogin={() => setView('LOGIN')} config={config} />}
+        {view === 'LOGIN' && <LoginView onLoginSuccess={(role) => { setWmsRole(role); setView('WMS'); }} onCancel={() => setView('WEBSITE')} />}
+        {view === 'WMS' && <WMSView db={db} user={user} role={wmsRole} onExit={() => setView('WEBSITE')} config={config} setConfig={setConfig} />}
+    </>
+  );
+}
 
 const LoginView = ({ onLoginSuccess, onCancel }: { onLoginSuccess: (role: 'admin' | 'staff') => void, onCancel: () => void }) => {
     const [username, setUsername] = useState('');
