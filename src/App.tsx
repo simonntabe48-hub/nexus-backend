@@ -1205,12 +1205,11 @@ const WMSView = ({ db, user, role, onExit, config, setConfig }: { db: any, user:
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
             
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-                signal: controller.signal
-            });
+           // BEFORE:
+const response = await fetch('http://localhost:5174/api/leads', {
+
+// AFTER:
+const response = await fetch('https://nexus-backend-q1ld.onrender.com/api/leads', {
             clearTimeout(timeoutId);
             
             const data = await res.json();
